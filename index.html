@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#24452a">
+<title>Garden Game</title>
+<style>
+  :root {
+    --pad: 10px;
+    --sgap: 5px;
+    --gap: 6px;
+    --slot: min(calc((100vw - 2 * var(--pad) - 7 * var(--sgap)) / 8), 56px);
+    --area-h: calc(var(--slot) + 46px);
+    --vh: 100vh;
+    --grid: min(100vw - 2 * var(--pad), 520px,
+                var(--vh) - 2 * var(--area-h) - 4 * var(--pad)
+                - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    --cell: calc((var(--grid) - 5 * var(--gap)) / 6);
+    --p0: #4aa3ff;
+    --p1: #ff9f43;
+    --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  }
+  @supports (height: 100dvh) { :root { --vh: 100dvh; } }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: radial-gradient(ellipse at center, #3d6b3f 0%, #24452a 70%, #1a3320 100%);
+    color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    justify-items: center;
+    align-items: center;
+    padding: max(var(--pad), env(safe-area-inset-top)) var(--pad) max(var(--pad), env(safe-area-inset-bottom));
+  }
+
+  /* ---------- Player areas ---------- */
+  .area {
+    position: relative;
+    padding: 6px 8px 8px;
+    border-radius: 14px;
+    border: 2px solid transparent;
+    transition: border-color .3s, background .3s, opacity .3s, box-shadow .3s;
+    visibility: hidden;
+  }
+  body.playing .area { visibility: visible; }
+  #p1 { transform: rotate(180deg); }
+  #p0 { --c: var(--p0); --c-bg: rgba(74, 163, 255, .18); --c-glow: rgba(74, 163, 255, .45); }
+  #p1 { --c: var(--p1); --c-bg: rgba(255, 159, 67, .18); --c-glow: rgba(255, 159, 67, .45); }
+  .area.active {
+    border-color: var(--c);
+    background: var(--c-bg);
+    box-shadow: 0 0 18px var(--c-glow);
+  }
+  .area.loser { opacity: .45; }
+  .area.winner {
+    border-color: #ffd54a;
+    background: rgba(255, 213, 74, .22);
+    box-shadow: 0 0 28px rgba(255, 213, 74, .7);
+  }
+  .area.second {
+    border-color: #cfd8dc;
+    background: rgba(207, 216, 220, .15);
+  }
+  .label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    margin-bottom: 6px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .label .name { color: var(--c); }
+  .label .status { flex: 1; font-weight: 500; opacity: .95; }
+  .area.active .status { animation: pulse 1.4s ease-in-out infinite; }
+  .label .count { font-variant-numeric: tabular-nums; opacity: .8; }
+  .slots { display: flex; gap: var(--sgap); }
+  .slot {
+    width: var(--slot);
+    height: var(--slot);
+    border-radius: 8px;
+    background: #fffaf0;
+    border: 1.5px solid #fff;
+    display: grid;
+    place-items: center;
+    font-family: var(--emoji);
+    font-size: calc(var(--slot) * .62);
+    line-height: 1;
+    transition: background .3s, border-color .3s;
+  }
+  .slot span { transition: opacity .3s, filter .3s; }
+  .slot.got {
+    background: rgba(255, 255, 255, .12);
+    border: 1.5px dashed rgba(255, 255, 255, .3);
+    animation: pop .35s ease-out;
+  }
+  .slot.got span { opacity: .35; filter: grayscale(1); }
+  .trophy {
+    display: inline-block;
+    font-family: var(--emoji);
+    font-size: 30px;
+    line-height: 1;
+    animation: bounce 1s ease-in-out infinite;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .4));
+  }
+
+  /* ---------- Board ---------- */
+  #board {
+    width: var(--grid);
+    height: var(--grid);
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+    gap: var(--gap);
+  }
+  .card { perspective: 600px; cursor: pointer; }
+  .card.gone { visibility: hidden; pointer-events: none; }
+  #board.locked .card { cursor: default; }
+  .inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform .45s ease;
+  }
+  .card.flipped .inner { transform: rotateY(180deg); }
+  .face {
+    position: absolute;
+    inset: 0;
+    border-radius: 10px;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, .35);
+  }
+  .back {
+    background:
+      radial-gradient(circle at center, rgba(255, 255, 255, .18) 0 22%, transparent 23%),
+      repeating-linear-gradient(45deg, #7a5230 0 6px, #6a4527 6px 12px);
+    border: 2px solid rgba(255, 255, 255, .25);
+  }
+  .front {
+    background: #fffaf0;
+    transform: rotateY(180deg);
+    font-family: var(--emoji);
+    font-size: calc(var(--cell) * .62);
+    line-height: 1;
+  }
+  /* Face-up card waiting for the player to tap it back */
+  #board.locked .card.waiting { cursor: pointer; }
+  .card.waiting .front { animation: ring 1.2s ease-in-out infinite; }
+
+  /* Flying card (grid -> slot) */
+  .fly {
+    position: fixed;
+    z-index: 50;
+    border-radius: 10px;
+    background: #fffaf0;
+    display: grid;
+    place-items: center;
+    font-family: var(--emoji);
+    line-height: 1;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .45);
+    pointer-events: none;
+  }
+
+  /* ---------- Menu ---------- */
+  #menu {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+  }
+  #menu.hidden { display: none; }
+  #menu h1 {
+    margin: 0;
+    font-size: 34px;
+    text-shadow: 0 3px 10px rgba(0, 0, 0, .4);
+  }
+  #menu h1 .e { font-family: var(--emoji); }
+  body.playing #menu h1 { display: none; }
+  #newGame {
+    font: inherit;
+    font-size: 28px;
+    font-weight: 700;
+    color: #24452a;
+    background: #ffd54a;
+    border: none;
+    border-radius: 18px;
+    padding: 22px 44px;
+    box-shadow: 0 6px 0 #c9a227, 0 10px 24px rgba(0, 0, 0, .4);
+    cursor: pointer;
+  }
+  #newGame:active { transform: translateY(4px); box-shadow: 0 2px 0 #c9a227, 0 4px 12px rgba(0, 0, 0, .4); }
+  #keepGoing {
+    font: inherit;
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(36, 69, 42, .85);
+    border: 2px solid rgba(255, 255, 255, .8);
+    border-radius: 14px;
+    padding: 12px 28px;
+    margin-top: -10px;
+    cursor: pointer;
+  }
+  #keepGoing:active { transform: translateY(2px); }
+  #keepGoing.hidden { display: none; }
+
+  @keyframes pulse { 50% { opacity: .45; } }
+  @keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.2); } 100% { transform: scale(1); } }
+  @keyframes bounce { 50% { transform: translateY(-6px) rotate(-8deg); } }
+  @keyframes ring { 50% { box-shadow: 0 0 0 3px var(--tc), 0 2px 5px rgba(0, 0, 0, .35); } }
+</style>
+</head>
+<body>
+  <section class="area" id="p1">
+    <div class="label"><span class="name">Player 2</span><span class="status"></span><span class="count"></span></div>
+    <div class="slots"></div>
+  </section>
+
+  <main id="board"></main>
+
+  <section class="area" id="p0">
+    <div class="label"><span class="name">Player 1</span><span class="status"></span><span class="count"></span></div>
+    <div class="slots"></div>
+  </section>
+
+  <div id="menu">
+    <h1><span class="e">🥕</span> Garden Game <span class="e">🍓</span></h1>
+    <button id="newGame">New game</button>
+    <button id="keepGoing" class="hidden">Keep going</button>
+  </div>
+
+<script>
+  const ITEMS = [
+    '🍇', '🍈', '🍉', '🍊', '🍋', '🍌', '🍍', '🥭', '🍎', '🍏', '🍐', '🍑', '🍒', '🍓', '🫐', '🥝', '🍅', '🫒', '🥥',
+    '🥑', '🍆', '🥔', '🥕', '🌽', '\u{1F336}\uFE0F', '🫑', '🥒', '🥬', '🥦', '🧄', '🧅', '🥜', '🫘', '🌰', '🍄', '🫛',
+  ];
+  const PER_PLAYER = 8;
+  const REVEAL_OWN_MS = 1000;
+  const MAX_FLIPS = 3;
+  const COLORS = ['#4aa3ff', '#ff9f43'];
+
+  const $ = (s, el = document) => el.querySelector(s);
+  const board = $('#board');
+  const menu = $('#menu');
+  const areas = [$('#p0'), $('#p1')];
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  let state = null;
+
+  function shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function newGame() {
+    const picks = shuffle([...ITEMS]);
+    const wants = [picks.slice(0, PER_PLAYER), picks.slice(PER_PLAYER, 2 * PER_PLAYER)];
+    const ownerOf = e => wants[0].includes(e) ? 0 : wants[1].includes(e) ? 1 : -1;
+
+    state = {
+      wants,
+      got: [0, 0],
+      turn: 0,
+      busy: false,
+      waiting: null,
+      over: false,
+      finished: [],
+      cards: shuffle([...ITEMS]).map(e => ({ e, owner: ownerOf(e), flips: 0, done: false, el: null })),
+    };
+
+    areas.forEach((area, p) => {
+      area.classList.remove('winner', 'second', 'loser', 'active');
+      $('.slots', area).innerHTML = wants[p].map(e => `<div class="slot" data-e="${e}"><span>${e}</span></div>`).join('');
+    });
+
+    board.innerHTML = '';
+    for (const c of state.cards) {
+      c.el = document.createElement('div');
+      c.el.className = 'card';
+      c.el.innerHTML = `<div class="inner"><div class="face back"></div>`
+        + `<div class="face front">${c.e}</div></div>`;
+      c.el.addEventListener('click', () => tap(c));
+      board.append(c.el);
+    }
+
+    document.body.classList.add('playing');
+    menu.classList.add('hidden');
+    updateTurn();
+  }
+
+  function updateTurn() {
+    areas.forEach((area, p) => {
+      area.classList.toggle('active', !state.over && p === state.turn);
+      const place = state.finished.indexOf(p);
+      $('.status', area).innerHTML = place === 0 ? '<span class="trophy">🏆</span> Winner!'
+        : place === 1 ? '<span class="trophy">🥈</span> Done!'
+        : !state.over && p === state.turn ? 'Your turn' : '';
+      $('.count', area).textContent = `${state.got[p]}/${PER_PLAYER}`;
+    });
+    board.classList.toggle('locked', state.busy || state.over);
+  }
+
+  function tap(c) {
+    if (!state || state.over || c.done) return;
+    if (state.waiting) {
+      if (c === state.waiting) flipBack(c);
+    } else if (!state.busy) {
+      flip(c);
+    }
+  }
+
+  async function flip(c) {
+    const p = state.turn;
+    state.busy = true;
+    updateTurn();
+
+    c.flips++;
+    c.el.style.setProperty('--tc', COLORS[p]);
+    c.el.classList.add('flipped');
+
+    if (c.owner === p) {
+      await sleep(REVEAL_OWN_MS);
+      await collect(c, p);
+      if (state.got[p] === PER_PLAYER) return finish(p);
+      endTurn();
+    } else {
+      // Stays face up until the player taps it again.
+      await sleep(450);
+      state.waiting = c;
+      c.el.classList.add('waiting');
+    }
+  }
+
+  async function flipBack(c) {
+    state.waiting = null;
+    c.el.classList.remove('waiting');
+    if (c.owner === -1 && c.flips >= MAX_FLIPS) {
+      await discard(c);
+    } else {
+      c.el.classList.remove('flipped');
+      await sleep(450);
+    }
+    endTurn();
+  }
+
+  function endTurn() {
+    const p = state.turn;
+    if (!state.finished.includes(1 - p)) state.turn = 1 - p;
+    state.busy = false;
+    updateTurn();
+  }
+
+  // Fly the card from the grid into the player's matching slot.
+  async function collect(c, p) {
+    const slot = $(`.slot[data-e="${c.e}"]`, areas[p]);
+    const from = c.el.getBoundingClientRect();
+    const to = slot.getBoundingClientRect();
+
+    const fly = document.createElement('div');
+    fly.className = 'fly';
+    fly.textContent = c.e;
+    Object.assign(fly.style, {
+      left: from.left + 'px',
+      top: from.top + 'px',
+      width: from.width + 'px',
+      height: from.height + 'px',
+      fontSize: from.width * .62 + 'px',
+    });
+    document.body.append(fly);
+    c.el.classList.add('gone');
+    c.done = true;
+
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+    const s = to.width / from.width;
+    const rot = p === 1 ? 180 : 0;
+    await fly.animate([
+      { transform: 'none' },
+      { transform: `translate(${dx * .35}px, ${dy * .35}px) scale(1.35) rotate(${rot / 2}deg)`, offset: .35 },
+      { transform: `translate(${dx}px, ${dy}px) scale(${s}) rotate(${rot}deg)` },
+    ], { duration: 800, easing: 'cubic-bezier(.45, 0, .25, 1)', fill: 'forwards' }).finished;
+
+    fly.remove();
+    slot.classList.add('got');
+    state.got[p]++;
+    updateTurn();
+    await sleep(350);
+  }
+
+  // Nobody needs this card and it's been seen enough: toss it off the board.
+  async function discard(c) {
+    c.done = true;
+    await c.el.animate([
+      { transform: 'none', opacity: 1 },
+      { transform: 'translateY(-12px) rotate(8deg) scale(1.1)', opacity: 1, offset: .25 },
+      { transform: 'translateY(60px) rotate(-35deg) scale(.3)', opacity: 0 },
+    ], { duration: 700, easing: 'ease-in', fill: 'forwards' }).finished;
+    c.el.classList.add('gone');
+  }
+
+  async function finish(p) {
+    state.over = true;
+    state.finished.push(p);
+    const first = state.finished.length === 1;
+    areas[p].classList.add(first ? 'winner' : 'second');
+    if (first) areas[1 - p].classList.add('loser');
+    updateTurn();
+    await sleep(1200);
+    $('#keepGoing').classList.toggle('hidden', !first);
+    menu.classList.remove('hidden');
+  }
+
+  // The winner sits out; the other player takes every remaining turn.
+  function keepGoing() {
+    const p = 1 - state.finished[0];
+    areas[p].classList.remove('loser');
+    menu.classList.add('hidden');
+    state.turn = p;
+    state.over = false;
+    state.busy = false;
+    updateTurn();
+  }
+
+  $('#newGame').addEventListener('click', newGame);
+  $('#keepGoing').addEventListener('click', keepGoing);
+</script>
+</body>
+</html>
