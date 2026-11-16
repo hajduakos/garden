@@ -20,6 +20,7 @@
     --p0: #4aa3ff;
     --p1: #ff9f43;
     --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+    --fit: .8; /* emoji font-size per px of box; measured at startup */
   }
   @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 
@@ -91,7 +92,7 @@
     display: grid;
     place-items: center;
     font-family: var(--emoji);
-    font-size: calc(var(--slot) * .62);
+    font-size: calc((var(--slot) - 3px) * var(--fit));
     line-height: 1;
     transition: background .3s, border-color .3s;
   }
@@ -152,7 +153,7 @@
     background: #fffaf0;
     transform: rotateY(180deg);
     font-family: var(--emoji);
-    font-size: calc(var(--cell) * .62);
+    font-size: calc(var(--cell) * var(--fit));
     line-height: 1;
   }
   /* Face-up card waiting for the player to tap it back */
@@ -254,6 +255,22 @@
   const REVEAL_OWN_MS = 1000;
   const MAX_FLIPS = 3;
   const COLORS = ['#4aa3ff', '#ff9f43'];
+
+  // Emoji fonts draw at different sizes per platform, so measure the largest
+  // glyph's ink box and size emojis to fill their card edge to edge.
+  const fit = (() => {
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = '100px ' + getComputedStyle(document.documentElement).getPropertyValue('--emoji');
+    let max = 0;
+    for (const e of ITEMS) {
+      const m = ctx.measureText(e);
+      const w = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
+      const h = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+      max = Math.max(max, w || m.width, h || 0);
+    }
+    return max > 0 ? 100 / max : .8;
+  })();
+  document.documentElement.style.setProperty('--fit', fit);
 
   const $ = (s, el = document) => el.querySelector(s);
   const board = $('#board');
@@ -383,7 +400,7 @@
       top: from.top + 'px',
       width: from.width + 'px',
       height: from.height + 'px',
-      fontSize: from.width * .62 + 'px',
+      fontSize: from.width * fit + 'px',
     });
     document.body.append(fly);
     c.el.classList.add('gone');
